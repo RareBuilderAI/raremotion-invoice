@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 generated_invoices/
 .streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+*.pem

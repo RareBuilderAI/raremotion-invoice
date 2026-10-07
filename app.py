@@ -1,4 +1,6 @@
 import streamlit as st
+from functools import partial
+from accounts import require_account, PdfDelivery, EXHAUSTED_MESSAGE
 from io import BytesIO
 from html import escape
 from pathlib import Path
@@ -111,6 +113,11 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+accounts, account_token, trial_used = require_account()
+if "pdf_delivery" not in st.session_state:
+    st.session_state.pdf_delivery = PdfDelivery()
 
 
 # ---------------------------------------------------------
@@ -785,16 +792,35 @@ if pdf:
 elif invoice_ready:
     st.caption("Click Prepare Invoice PDF, then download your completed invoice.")
 
-safe_invoice_number = re.sub(r"[^\w.-]+", "_", invoice_number).strip("._") or "invoice"
-st.download_button(
-    label="Download Invoice PDF",
-    data=pdf or b"",
-    file_name=f"{safe_invoice_number}.pdf",
-    mime="application/pdf",
-    use_container_width=True,
-    disabled=pdf is None,
-    on_click="ignore",
-)
+st.caption("Your account includes exactly 2 free PDF downloads. Each download counts, even for the same invoice. Preparing or editing an invoice is free.")
+
+@st.fragment(run_every="2s")
+def download_controls():
+    delivery = st.session_state.pdf_delivery
+    used, message = delivery.status()
+    used = max(trial_used, used or 0)
+    st.caption(f"{max(0, 2 - used)} of 2 free PDF downloads remaining")
+    if used >= 2:
+        st.warning(EXHAUSTED_MESSAGE)
+    elif message:
+        st.error(message)
+    # Never give the widget unguarded PDF bytes. Every click invokes the server
+    # callback, which checks the verified account and claims a database slot.
+    snapshot = st.session_state.get("prepared_pdf")
+    safe_number = re.sub(r"[^\w.-]+", "_", invoice_number).strip("._") or "invoice"
+    st.download_button(
+        "Download Invoice PDF",
+        data=partial(delivery.download, accounts, account_token, snapshot),
+        file_name=f"{safe_number}.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+        disabled=snapshot is None or used >= 2,
+        on_click="ignore",
+    )
+    if st.button("Refresh download allowance"):
+        st.rerun(scope="app")
+
+download_controls()
 
 
 # ---------------------------------------------------------
